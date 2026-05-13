@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 
 from logic import normalize_schedule_time
 
@@ -147,6 +147,30 @@ class Database:
         with psycopg2.connect(self.url) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (limit,))
+                return cursor.fetchall()
+
+    def get_today_water_readings(self, day=None):
+        day = day or datetime.now().date()
+        start = datetime.combine(day, time.min)
+        end = datetime.combine(day, time.max)
+
+        if not self._can_use_postgres():
+            rows = []
+            for row in self.demo_water_history:
+                synced_at = row.get("last_synced")
+                if isinstance(synced_at, datetime) and start <= synced_at <= end:
+                    rows.append(row)
+            return rows
+
+        query = """
+            SELECT temperature, ph, water_level, status_label, feed_percentage, last_synced
+            FROM water_readings
+            WHERE last_synced BETWEEN %s AND %s
+            ORDER BY last_synced ASC
+        """
+        with psycopg2.connect(self.url) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (start, end))
                 return cursor.fetchall()
 
     def save_feed_schedule(self, schedule):

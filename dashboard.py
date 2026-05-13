@@ -62,6 +62,7 @@ class DashboardPage:
             return ox + value * x_ratio * scale
 
         def sy(value):
+            
             return oy + value * y_ratio * scale
 
         def fs(size):
@@ -99,7 +100,7 @@ class DashboardPage:
         circle(196, 85, 12, water_health["color"])
         text(213, 77, water_health["label"], 16)
         text(112, 135, self.app.format_last_synced(reading.last_synced), 64, "bold")
-        text(128, 238, "Terakhir diperbarui", 16, "bold", "#646464")
+        text(124, 238, "Terakhir diperbarui", 16, "bold", "#646464")
 
         rect(500, 35, 180, 50, 10, "#eeedfe", shadow=True, tags="report")
         text(515, 48, "Lihat Laporan", 16, "bold", tags="report")

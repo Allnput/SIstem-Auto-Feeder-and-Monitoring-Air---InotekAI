@@ -10,6 +10,7 @@ from feed import FeedPage
 from feednew import FeedNewPage
 from logic import format_last_synced, getWaterStatus, get_device_health, get_feed_level_label, get_today_schedule
 from riwayatpakan import RiwayatPakanPage
+from riwayatwmonitoring import RiwayatWaterMonitoringPage
 from services import GpioService, IoTManualFeedClient, SensorService
 from watermonitoring import WaterMonitoringPage
 
@@ -334,6 +335,13 @@ class InotekApp:
     def get_today_schedule(self):
         return get_today_schedule(self.feed_schedules)
 
+    def get_today_water_readings(self):
+        try:
+            return self.db.get_today_water_readings()
+        except Exception as exc:
+            self._warn_database_once(exc)
+            return []
+
     def save_water_reading(self, reading, water_status):
         last_synced = reading.last_synced if isinstance(reading.last_synced, datetime) else datetime.now()
         key = (
@@ -363,24 +371,7 @@ class InotekApp:
         messagebox.showwarning("Database", f"Data belum bisa disimpan ke PostgreSQL.\n\n{exc}")
 
     def show_water_history(self):
-        try:
-            rows = self.db.get_water_history()
-        except Exception as exc:
-            self._warn_database_once(exc)
-            rows = []
-        if not rows:
-            messagebox.showinfo("Riwayat Air", "Belum ada riwayat air.")
-            return
-
-        lines = []
-        for row in rows[:8]:
-            if isinstance(row, dict):
-                synced = format_last_synced(row["last_synced"])
-                lines.append(f"{synced} | Suhu {row['temperature']} | pH {row['ph']} | {row['status_label']}")
-            else:
-                synced = format_last_synced(row[5])
-                lines.append(f"{synced} | Suhu {row[0]} | pH {row[1]} | {row[3]}")
-        messagebox.showinfo("Riwayat Air", "\n".join(lines))
+        RiwayatWaterMonitoringPage(self).render()
 
     def show_feed_history(self):
         try:
@@ -583,6 +574,8 @@ class InotekApp:
 
         self._metric_card(canvas, sx, sy, fs, rect, line, 352, 110, "pH Air", str(ph_value), "Optimal", "#eeedfe")
         self._metric_card(canvas, sx, sy, fs, rect, line, 530, 110, "Suhu Air", str(temp_value), "Normal", "#e6f1fb")
+        # Kartu kecil untuk nilai sensor seperti pH Air dan Suhu Air.
+        self._monitoring_card(canvas, sx, sy, fs, rect, line, 352, 80, "pH Air", str(ph_value), "Optimal", "#eeedfe")
 
         # Sisa pakan card.
         rect(715, 24, 220, 286, 24, "#ffffff", shadow=True)
@@ -641,12 +634,39 @@ class InotekApp:
 # Atur bagian kartu kecil didalam kondisi air
     def _metric_card(self, canvas, sx, sy, fs, rect, line, x, y, title, value, status, fill, status_color="#000000"):
         # Kartu kecil untuk nilai sensor seperti pH Air dan Suhu Air.
-        rect(x, y, 155, 162, 22, fill, shadow=True)
+        rect(x, y, 153, 162, 22, fill, shadow=True)
         canvas.create_text(sx(x + 77), sy(y + 2), text=title, anchor="n", font=("Segoe UI", fs(24), "bold"), fill="#000000")
         line(x + 16, y + 45, x + 136, y + 45, "#000000", 1)
         canvas.create_text(sx(x + 77), sy(y + 55), text=value, anchor="n", font=("Segoe UI", fs(40), "bold"), fill="#000000")
         canvas.create_text(sx(x + 77), sy(y + 115), text=status, anchor="n", font=("Segoe UI", fs(20)), fill=status_color)
 
+# Atur bagian kartu kecil didalam kondisi air
+    def _monitoring_card(self, canvas, sx, sy, fs, rect, line, x, y, title, value, status, fill, status_color="#000000"):
+        # Ukuran rectangle fleksibel, menyesuaikan konten
+        padding_x = 20  # jarak kiri-kanan
+        padding_y = 15  # jarak atas-bawah
+
+        # Hitung lebar dan tinggi rectangle berdasarkan teks
+        width = max(155, len(str(value)) * 20 + padding_x*2)
+        height = 115  # tetap, tapi bisa juga dibuat dinamis jika mau
+
+        rect(x-5, y, width, height, 18, fill, shadow=True)
+
+        # Titik tengah rectangle
+        center_x = x + width / 2
+        center_y = y + height / 2
+
+        # Posisi relatif title, value, status
+        title_y = y + padding_y + 5
+        value_y = y + height / 2 - 10
+        status_y = y + height - padding_y
+
+        # Gambar teks center
+        canvas.create_text(sx(center_x), sy(title_y), text=title, anchor="center", font=("Segoe UI", fs(24), "bold"), fill="#000000")
+        line(x + 16, y + 43, x + width - 16, y + 43, "#000000", 1)
+        canvas.create_text(sx(center_x), sy(value_y + 30), text=value, anchor="center", font=("Segoe UI", fs(32), "bold"), fill="#000000")
+        canvas.create_text(sx(center_x), sy(status_y), text=status, anchor="center", font=("Segoe UI", fs(20)), fill=status_color)
+        
 # Label kecil pada jadwal pakan: Selesai, Menunggu, Terjadwal.
     def _pill(self, canvas, sx, sy, fs, x, y, width, label, bg, fg):
         # Label status kecil pada jadwal pakan: Selesai, Menunggu, Terjadwal.
