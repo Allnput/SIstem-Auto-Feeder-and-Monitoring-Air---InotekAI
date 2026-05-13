@@ -40,7 +40,7 @@ FIGMA_HEIGHT = 640
 BASE_DIR = Path(__file__).resolve().parent
 ICON_DIR = BASE_DIR / "icon"
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "inotekai.db"))
 IOT_MANUAL_FEED_URL = os.getenv("IOT_MANUAL_FEED_URL", "")
 
 class RoundedEntry(tk.Canvas):
@@ -102,7 +102,7 @@ class InotekApp:
     # Class utama aplikasi. Semua perpindahan layar dan event tombol ada di sini.
     def __init__(self, window):
         self.window = window
-        self.db = Database(DATABASE_URL)
+        self.db = Database(DATABASE_PATH)
         self._db_warning_shown = False
         try:
             self.db.ensure_schema()
@@ -368,7 +368,7 @@ class InotekApp:
         if self._db_warning_shown:
             return
         self._db_warning_shown = True
-        messagebox.showwarning("Database", f"Data belum bisa disimpan ke PostgreSQL.\n\n{exc}")
+        messagebox.showwarning("Database", f"Data belum bisa disimpan ke SQLite.\n\n{exc}")
 
     def show_water_history(self):
         RiwayatWaterMonitoringPage(self).render()
