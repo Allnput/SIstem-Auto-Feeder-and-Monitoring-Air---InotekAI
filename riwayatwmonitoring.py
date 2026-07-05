@@ -1,12 +1,12 @@
 import calendar
-import csv
 from datetime import date, datetime, timedelta, time
 from pathlib import Path
+import openpyxl
 from database import Database
 import tkinter as tk
 from tkinter import messagebox
 from tkcalendar import Calendar
-from tkinter import ttk  # Kita butuh ini untuk dropdown (Combobox) Bulan/Tahun
+from tkinter import ttk
 
 
 PRIMARY = "#9157f5"
@@ -50,16 +50,12 @@ class RiwayatWaterMonitoringPage:
         self.picker_year = today.year
         self.picker_month = today.month
         self.table_scroll_index = 0
-        self.current_rows = [] # <--- Tempat menyimpan data sementara    
+        self.current_rows = []
         self._is_dragging_scroll = False
             
-        # Konfigurasi Style untuk Combobox
         style = ttk.Style()
-        # Gunakan tema 'clam' agar warna border dan panah bisa diubah
         if 'clam' in style.theme_names():
             style.theme_use('clam')
-            
-        # Atur warna dasar Combobox
         style.configure("Inotek.TCombobox",
                         fieldbackground="#ffffff",     # Warna latar area teks
                         background=PRIMARY,            # Warna latar tombol panah (Ungu)
@@ -69,11 +65,9 @@ class RiwayatWaterMonitoringPage:
                         lightcolor=PRIMARY,
                         darkcolor=PRIMARY,
                         padding=2)                     # Padding internal (memperbesar tinggi kotak)
-        
-        # Atur warna saat Combobox diklik/dipilih
         style.map("Inotek.TCombobox",
                 fieldbackground=[("readonly", "#ffffff")],
-                selectbackground=[("readonly", PRIMARY)],    # Latar biru/ungu saat teks disorot
+                selectbackground=[("readonly", PRIMARY)],
                 selectforeground=[("readonly", "#ffffff")])
 
     def render(self):
@@ -82,11 +76,7 @@ class RiwayatWaterMonitoringPage:
 
         self.canvas = tk.Canvas(self.app.window, bg="#f8f5fc", highlightthickness=0, bd=0)
         self.canvas.pack(side="left", expand=True, fill="both")
-
-        # --- TAMBAHAN BARU: Kanvas khusus Sidebar (Fixed) ---
         self.sidebar_canvas = tk.Canvas(self.app.window, bg="#ffffff", highlightthickness=0, bd=0)
-        # Kita tidak memakai pack, tapi place() nanti di dalam fungsi draw()
-        # ----------------------------------------------------
 
         self._bind_actions()
         self.canvas.update_idletasks()
@@ -95,24 +85,20 @@ class RiwayatWaterMonitoringPage:
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         
     def _load_data(self):
-        # 1. Tarik data dari database HANYA saat periode berubah/pertama kali dimuat
         self.current_rows = self._history_rows()
-        # 2. Kembalikan posisi scroll ke paling atas
         self.table_scroll_index = 0
-        # 3. Baru gambar ulang layarnya
         self.draw()
 
     def _bind_actions(self):
         self.sidebar_canvas.tag_bind("home-nav", "<Button-1>", lambda _event: self.app.show_dashboard(self.app.current_user_name))
-        self.sidebar_canvas.tag_bind("water-nav", "<Button-1>", lambda _event: self.app.show_water_monitoring_page(self.mode))
-        self.sidebar_canvas.tag_bind("feed-nav", "<Button-1>", lambda _event: self.app.show_schedule_page())
+        self.sidebar_canvas.tag_bind("water-nav", "<Button-1>", lambda _event: self.app.show_water_history())
+        self.sidebar_canvas.tag_bind("notif-nav", "<Button-1>", lambda _event: self.app.show_notification())
         self.canvas.tag_bind("period", "<Button-1>", lambda _event: self._toggle_period_popup())
-        # Event khusus untuk Scrollbar Kustom
         self.canvas.tag_bind("scroll-thumb", "<Button-1>", self._start_scroll)
         self.canvas.tag_bind("scroll-track", "<Button-1>", self._click_track)
         self.canvas.bind("<B1-Motion>", self._drag_scroll)
         self.canvas.bind("<ButtonRelease-1>", self._stop_scroll)
-        self.canvas.tag_bind("download", "<Button-1>", lambda _event: messagebox.showinfo("Unduh", "File telah diunduh."))
+        self.canvas.tag_bind("download", "<Button-1>", lambda _event: self._download_excel())
         self.canvas.tag_bind("popup-close", "<Button-1>", lambda _event: self._cancel_picker())
         self.canvas.tag_bind("picker-done", "<Button-1>", lambda _event: self._finish_picker())
         for label in ["tanggal", "Tahunan", "Mingguan", "Bulan"]:
@@ -128,25 +114,15 @@ class RiwayatWaterMonitoringPage:
         self.draw()
 
     def _on_mousewheel(self, event):
-        # Dapatkan posisi Y kursor relatif terhadap kanvas
         y = self.canvas.canvasy(event.y)
-        
-        # Cek apakah kursor berada di area tabel (Y: 675 hingga 1300) dan data bisa di-scroll
         if 675 <= y <= 1300 and hasattr(self, 'current_rows') and len(self.current_rows) > 10:
-            
-            # Arah scroll (-1 untuk ke atas, 1 untuk ke bawah)
             direction = -1 if event.delta > 0 else 1
             max_scroll = len(self.current_rows) - 10
             
             new_index = self.table_scroll_index + direction
-            # Kunci index agar tidak menembus batas atas (0) dan batas bawah (max_scroll)
             self.table_scroll_index = max(0, min(max_scroll, new_index))
-            
-            # Render ulang UI dengan index baris yang baru
             self.draw()
-            return "break" # Cegah kanvas utama ikut ter-scroll
-            
-        # Jika kursor di luar tabel, scroll layar utama ke atas/bawah seperti biasa
+            return "break"
         self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         return "break"
 
@@ -182,6 +158,7 @@ class RiwayatWaterMonitoringPage:
         self._sy_factor = y_ratio * scale
         
         def sx(value):
+            
             return ox + value * x_ratio * scale
 
         def sy(value):
@@ -206,7 +183,7 @@ class RiwayatWaterMonitoringPage:
 
         rows = self._history_rows()
         chart = self._build_chart(rows)
-        summary = self._summary(chart)
+        summary = self._summary(rows)
 
         self._draw_sidebar(sx, sy, scale, x_ratio, y_ratio)
         rect(90, 20, 845, 600, 45, "#ffffff", shadow=True)
@@ -223,43 +200,44 @@ class RiwayatWaterMonitoringPage:
         text(195, 95, "Periode", 16, "bold", "#333333")
         rect(280, 94, 115, 27, 16, "#e6e1ff", tags="period")
         text(290, 95, self.period, 12, "bold", "#42404a", tags="period")
-        text(154, 154, self._period_range_text(), 16, "bold", "#111111")
+        text(490, 150, self._period_range_text(), 16, "bold", "#111111", anchor="n")
         text(805, 133, "↓", 15, "bold", "#ffffff", tags="download")
 
         self._summary_card(rect, text, 110, 190, "Rata-rata " + ("pH"), self.app.format_number(summary["average"]), "#eeedfe", PRIMARY)
-        self._summary_card(rect, text, 315, 190, "Terendah", self.app.format_number(summary["min"]), "#eeedfe", PRIMARY, summary["min_label"])
-        self._summary_card(rect, text, 520, 190, "Tertinggi", self.app.format_number(summary["max"]), "#eeedfe", PRIMARY, summary["max_label"])
-        self._summary_card(rect, text, 725, 190, "Status", summary["status"]["label"], "#e6f1fb", summary["status"]["color"])
-
+        self._summary_card(rect, text, 270, 190, "Terendah", self.app.format_number(summary["min"]), "#eeedfe", PRIMARY, summary["min_label"])
+        self._summary_card(rect, text, 430, 190, "Tertinggi", self.app.format_number(summary["max"]), "#eeedfe", PRIMARY, summary["max_label"])
+        self._summary_card_status(rect, text, line, 600, 190, "Status", summary["status"]["label"], "#e6f1fb", summary["status"]["color"])
+        
         title = "Grafik pH air"
         text(165, 305, title, 18, "bold")
-        canvas.create_rectangle(sx(565), sy(325), sx(576), sy(336), fill=PRIMARY, outline=PRIMARY)
+        canvas.create_rectangle(sx(565), sy(325), sx(576), sy(336), fill=summary["status"]["color"], outline="#000000")
         text(582, 318, "Status air", 11)
-        line(662, 331, 690, 331, "#000000", 1, dash=(4, 2))
+        line(662, 331, 685, 331, "#000000", 1, dash=(4, 2))
         text(696, 318, "Batas normal", 11)
-        # --- PERCABANGAN GRAFIK ---
+
         if self.period == "tanggal":
-            hourly_buckets = {hour: [] for hour in range(24)}
-            
+            half_hour_buckets = {}
+            for h in range(24):
+                half_hour_buckets[(h, 0)] = []
+                half_hour_buckets[(h, 30)] = []
             for row in rows:
                 if row["ph_level"] is not None:
                     hour = row["synced_at"].hour
-                    hourly_buckets[hour].append(row["ph_level"])
-
+                    minute_bucket = 0 if row["synced_at"].minute < 30 else 30
+                    
+                    half_hour_buckets[(hour, minute_bucket)].append(row["ph_level"])
             chart_data = []
-            for hour, values in hourly_buckets.items():
-                if values:  # Pastikan keranjangnya tidak kosong
+            for (hour, minute), values in half_hour_buckets.items():
+                if values:
                     avg_value = sum(values) / len(values)
-                    dt = datetime.combine(self.selected_date, time(hour=hour, minute=0, second=0))
+                    dt = datetime.combine(self.selected_date, time(hour=hour, minute=minute, second=0))
                     
                     chart_data.append({
                         "time": dt, 
                         "value": avg_value
                     })
             self.app.draw_chart_today(canvas, sx, sy, fs, line, text, PRIMARY, PRIMARY, chart_data)
-            
         else:
-            # Panggil grafik bawaan Riwayat (sistem bucket Mingguan/Bulanan/Tahunan)
             self._draw_chart(canvas, sx, sy, fs, line, text, chart)
 
         self._draw_table(canvas, sx, sy, fs, rect, text, line, rows)
@@ -291,10 +269,6 @@ class RiwayatWaterMonitoringPage:
         self._period_choice(rect, text, x0 + 70, y0 + 178, "Mingguan")
         self._period_choice(rect, text, x0 + 272, y0 + 178, "Bulan")
 
-        text(x0 + 64, y0 + 238, "<", 22, "bold", PRIMARY, tags=("popup", "period-prev"))
-        text(x0 + 365, y0 + 238, ">", 22, "bold", PRIMARY, tags=("popup", "period-next"))
-        text(x0 + 118, y0 + 244, self._period_range_text(), 11, "bold", "#333333", tags="popup")
-
     def _period_choice(self, rect, text, x, y, label):
         active = self.period == label
         rect(x - 14, y - 8, 132, 44, 14, PRIMARY if active else "#f4efff", "#e2d8ff", 1, tags=("popup", f"period-{label}"))
@@ -303,41 +277,46 @@ class RiwayatWaterMonitoringPage:
     def _draw_sidebar(self, sx_main, sy_main, scale, x_ratio, y_ratio):
         canvas = self.sidebar_canvas
         canvas.delete("all")
-        
-        # Hitung proporsi lebar sidebar (78px desain asli)
         sidebar_width = 78 * x_ratio * scale
-        
-        # Kunci kanvas sidebar di koordinat statis (menimpa kanvas scroll)
+
         canvas.place(x=sx_main(0), y=0, width=sidebar_width, height=self.app.height)
-        
-        # Fungsi kordinat lokal khusus untuk elemen di dalam sidebar
+
         def sx(value): return value * x_ratio * scale
         def sy(value): return value * y_ratio * scale
-        
-        # Gambar background dasar
+
         self.app._dashboard_round_rect(canvas, sx(4), sy(5), sx(78 + 4), sy(640 + 5), 0, "#c9c9c9", "#c9c9c9", 0, None)
         canvas.create_rectangle(sx(0), sy(0), sx(78), sy(640), fill="#ffffff", outline="")
-        
-        # Background logo pojok kiri atas
         self.app._dashboard_round_rect(canvas, sx(8), sy(20), sx(69), sy(72), 0, "#faf7ff", "#faf7ff", 0, None)
-        
-        # Tumpuk ikon-ikon statis
         self.app._draw_icon_image(canvas, sx, sy, scale, "logo inotekai.jpeg", 8, 20, 61, 52, fallback=lambda: canvas.create_text(sx(12), sy(35), text="InotekAI", fill=PRIMARY))
         self.app._draw_icon_image(canvas, sx, sy, scale, "home hitam.png", 22, 235, 38, 38, fallback=lambda: self.app._draw_home_icon(canvas, sx, sy, scale, 24, 243))
         self.app._draw_icon_image(canvas, sx, sy, scale, "water ungu.png", 22, 300, 42, 42, fallback=lambda: self.app._draw_water_icon(canvas, sx, sy, scale, 21, 302, label=True, color=PRIMARY))
         self.app._draw_icon_image(canvas, sx, sy, scale, "notif hitam.png", 15, 360, 50, 50, fallback=lambda: self.app._draw_notif_icon(canvas, sx, sy, scale, 17, 367))
-        
-        # Hitbox klik navigasi
         canvas.create_rectangle(sx(0), sy(206), sx(78), sy(284), fill="", outline="", tags="home-nav")
         canvas.create_rectangle(sx(0), sy(284), sx(78), sy(352), fill="", outline="", tags="water-nav")
-        canvas.create_rectangle(sx(0), sy(352), sx(78), sy(430), fill="", outline="", tags="feed-nav")
+        canvas.create_rectangle(sx(0), sy(352), sx(78), sy(430), fill="", outline="", tags="notif-nav")
         
     def _summary_card(self, rect, text, x, y, title, value, bg, value_color, subtitle=""):
-        rect(x, y, 185, 92, 20, bg, shadow=True)
+        rect(x, y, 145, 92, 20, bg, shadow=True)
         text(x + 15, y + 13, title, 15)
-        text(x + 15, y + 40, value, 27, "bold", value_color)
+        text(x + 15, y + 35, value, 27, "bold", value_color)
         if subtitle:
             text(x + 15, y + 70, subtitle, 10, fill="#666666")
+    
+    def _summary_card_status(self, rect, text, line, x, y, title, value, fill, value_color):
+        padding_y = 15
+        width = 300
+        height = 94
+        rect(x, y, width, height, 18, fill, shadow=True)
+
+        center_x = x + width / 2
+
+        title_y = y + padding_y
+        line_y = title_y + 37
+        value_y = y + height / 2 + 15
+
+        text(center_x, title_y + 8, title, 15, "bold", fill="#000000", anchor="center")
+        line(x + 20, line_y - 7, x + width - 20, line_y - 7, "#000000", 1)
+        text(center_x + 1, value_y + 5, value, 27, "bold", value_color, anchor="center")
 
     def _draw_chart(self, canvas, sx, sy, fs, line, text, chart):
         left, top, right, bottom = 140, 355, 910, 555
@@ -410,11 +389,8 @@ class RiwayatWaterMonitoringPage:
         xs = [118, 185, 345, 510, 685]
         for x, header in zip(xs, headers):
             text(x, 735, header, 15, "bold", "#7169e8")
-            
-        # --- LOGIKA PEMOTONGAN DATA (SCROLL) ---
         visible_count = 10
         total_count = len(rows)
-        # Ambil 10 baris saja berdasarkan posisi index scroll saat ini
         visible = rows[self.table_scroll_index : self.table_scroll_index + visible_count]
         
         if not visible:
@@ -424,8 +400,6 @@ class RiwayatWaterMonitoringPage:
         for index, row in enumerate(visible):
             y = 780 + index * 48
             status = self._row_status(row)
-            
-            # Hitung nomor urut asli di database (agar tidak kembali ke angka 1 saat discroll)
             real_number = self.table_scroll_index + index + 1
             
             values = [
@@ -440,26 +414,19 @@ class RiwayatWaterMonitoringPage:
                 text(x, y, value, 14, "bold", fill)
             line(112, y + 32, 860, y + 32, "#a68cff", 1)
 
-        # --- MENGGAMBAR CUSTOM SCROLLBAR (Sesuai Referensi Gambar) ---
         if total_count > visible_count:
             track_x = 880
             track_y1 = 770
             track_y2 = 1240
             track_h = track_y2 - track_y1
-            
-            # 1. Jalur Background (Garis Abu-abu) - Tambahkan tags="scroll-track"
+
             rect(track_x, track_y1, 8, track_h, 4, "#e6e6e6", tags="scroll-track")
-            
-            # 2. Hitung Ukuran dan Posisi Thumb (Pil Ungu)
             thumb_h = max(40, track_h * (visible_count / total_count))
             scroll_ratio = self.table_scroll_index / (total_count - visible_count)
             thumb_y = track_y1 + scroll_ratio * (track_h - thumb_h)
-            
-            # 3. Gambar Thumb (Latar putih, garis ungu) - Tambahkan tags="scroll-thumb"
             rect(track_x - 1, thumb_y, 10, thumb_h, 5, "#ffffff", PRIMARY, 2, tags="scroll-thumb")
 
     def _history_rows(self):
-        # 1. Tentukan rentang waktu (Start Date & End Date) berdasarkan periode
         if self.period == "tanggal":
             start_date = self.selected_date
             end_date = self.selected_date
@@ -477,13 +444,8 @@ class RiwayatWaterMonitoringPage:
             start_date = date(self.selected_year, 1, 1)
             end_date = date(self.selected_year, 12, 31)
 
-        # 2. Panggil fungsi database yang baru (efisien & cepat)
         raw_rows = self.db.get_water_history_by_date_range(start_date, end_date)
-        
-        # 3. Normalisasi data seperti biasa
         rows = [self._normalize_row(row) for row in raw_rows]
-        
-        # Hapus nilai None (jika ada error parsing)
         return [row for row in rows if row is not None]
 
     def _normalize_row(self, row):
@@ -540,7 +502,24 @@ class RiwayatWaterMonitoringPage:
             return [{"label": f"{hour:02d}.00", "tooltip": f"{hour:02d}.00-{min(hour + 3, 23):02d}.59", "start": base.replace(hour=hour), "values": []} for hour in range(0, 24, 4)]
         if self.period == "Bulan":
             _, last_day = calendar.monthrange(self.selected_year, self.selected_month)
-            return [{"label": f"M-{index + 1}", "tooltip": f"Minggu ke-{index + 1}", "week_index": index, "values": []} for index in range((last_day + 6) // 7)]
+            buckets = []
+            
+            for day in range(1, last_day + 1):
+                # Atur label bawah agar hanya muncul seminggu sekali
+                if day == 1: label_bawah = "Minggu ke-1"
+                elif day == 8: label_bawah = "Minggu ke-2"
+                elif day == 15: label_bawah = "Minggu ke-3"
+                elif day == 22: label_bawah = "Minggu ke-4"
+                elif day == 29: label_bawah = "Minggu ke-5"
+                else: label_bawah = "" # Kosongkan hari lainnya agar tidak menumpuk
+                
+                buckets.append({
+                    "label": label_bawah, 
+                    "tooltip": f"{day} {MONTH_NAMES[self.selected_month - 1]} {self.selected_year}", 
+                    "day": day, 
+                    "values": []
+                })
+            return buckets
         if self.period == "Tahunan":
             return [{"label": SHORT_MONTH_NAMES[index], "tooltip": f"{MONTH_NAMES[index]} {self.selected_year}", "month": index + 1, "values": []} for index in range(12)]
         start = self.selected_week_start
@@ -550,7 +529,7 @@ class RiwayatWaterMonitoringPage:
         if self.period == "tanggal":
             return buckets[synced_at.hour // 4]
         if self.period == "Bulan":
-            return buckets[min((synced_at.day - 1) // 7, len(buckets) - 1)]
+            return buckets[synced_at.day - 1]
         if self.period == "Tahunan":
             return buckets[synced_at.month - 1]
         for bucket in buckets:
@@ -558,39 +537,110 @@ class RiwayatWaterMonitoringPage:
                 return bucket
         return None
 
-    def _summary(self, chart):
-        available = [item for item in chart if item["value"] is not None]
+    def _summary(self, rows):
+        available = [row for row in rows if row["ph_level"] is not None]
+        
         if not available:
             return {"average": None, "min": None, "max": None, "min_label": "", "max_label": "", "status": {"label": "-", "color": "#95A5A6"}}
-        values = [item["value"] for item in available]
+            
+
+        values = [row["ph_level"] for row in available]
         average = sum(values) / len(values)
-        low = min(available, key=lambda item: item["value"])
-        high = max(available, key=lambda item: item["value"])
-        status = self._temperature_status(average) if self.mode == "suhu" else self.app.ph_status(average)
-        return {"average": average, "min": low["value"], "max": high["value"], "min_label": low["label"], "max_label": high["label"], "status": status}
+        low_row = min(available, key=lambda r: r["ph_level"])
+        high_row = max(available, key=lambda r: r["ph_level"])
+        if self.period == "tanggal":
+            min_label = low_row["synced_at"].strftime("%H:%M")
+            max_label = high_row["synced_at"].strftime("%H:%M")
+        else:
+            min_label = low_row["synced_at"].strftime("%d/%m")
+            max_label = high_row["synced_at"].strftime("%d/%m")
+            
+        status = self.app.ph_status(average)
+        
+        return {
+            "average": average, 
+            "min": low_row["ph_level"], 
+            "max": high_row["ph_level"], 
+            "min_label": min_label, 
+            "max_label": max_label, 
+            "status": status
+        }
 
     def _row_status(self, row):
         return self.app.ph_status(row["ph_level"])
 
-    def _download_csv(self):
-        rows = self._history_rows()
+    def _download_excel(self):
+        if self.period == "tanggal":
+            start_date = self.selected_date
+            end_date = self.selected_date
+        elif self.period == "Mingguan":
+            start_date = self.selected_week_start
+            end_date = start_date + timedelta(days=6)
+        elif self.period == "Bulan":
+            start_date = date(self.selected_year, self.selected_month, 1)
+            _, last_day = calendar.monthrange(self.selected_year, self.selected_month)
+            end_date = date(self.selected_year, self.selected_month, last_day)
+        elif self.period == "Tahunan":
+            start_date = date(self.selected_year, 1, 1)
+            end_date = date(self.selected_year, 12, 31)
+
+        # 3. Query KHUSUS ke Database untuk menarik 4 kolom spesifik
+        query = """
+            SELECT id_ph, ph_level, ph_status_label, timestamp
+            FROM monitoring_air
+            WHERE DATE(timestamp) BETWEEN ? AND ?
+            ORDER BY timestamp DESC
+        """
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+        
+        # Eksekusi Query
+        with self.db._connect() as conn:
+            rows = conn.execute(query, (start_str, end_str)).fetchall()
+            
         if not rows:
-            messagebox.showinfo("Unduh", "Belum ada riwayat kondisi air.")
+            messagebox.showinfo("Unduh", "Belum ada data untuk diunduh pada periode ini.")
             return
-        path = Path(__file__).resolve().parent / f"riwayat_kondisi_air_{self.mode}_{self.period.lower()}.csv"
-        with path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            metric_label = "ph_air"
-            writer.writerow(["tanggal", "waktu", metric_label, "status"])
-            for row in rows:
-                status = self._row_status(row)
-                writer.writerow([
-                    row["synced_at"].strftime("%d/%m/%Y"),
-                    row["synced_at"].strftime("%H:%M"),
-                    self.app.format_number(row["ph"]),
-                    status["label"],
-                ])
-        messagebox.showinfo("Unduh", f"CSV disimpan:\n{path}")
+
+        # 4. Buat File Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Riwayat pH Air"
+        
+        # Tulis Header (Judul Kolom)
+        ws.append(["id_ph", "ph_level", "ph_status_label", "timestamp"])
+        
+        # Tulis isi data dari database baris per baris
+        for row in rows:
+            ws.append([
+                row[0], # id_ph
+                row[1], # ph_level
+                row[2], # ph_status_label
+                row[3]  # timestamp
+            ])
+            
+        bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", 
+                 "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+        
+        # Format string untuk tanggal mulai dan selesai
+        start_name = f"{start_date.day}_{bulan[start_date.month - 1]}_{start_date.year}"
+        end_name = f"{end_date.day}_{bulan[end_date.month - 1]}_{end_date.year}"
+        
+        # Logika penamaan berdasarkan rentang waktu
+        if start_date == end_date:
+            # Jika user memilih "Tanggal" (hanya 1 hari)
+            filename = f"riwayat_kondisi_air_{start_name}.xlsx"
+        else:
+            # Jika user memilih Mingguan, Bulan, atau Tahunan (ada rentang)
+            filename = f"riwayat_kondisi_air_{start_name}_sampai_{end_name}.xlsx"
+            
+        path = Path(__file__).resolve().parent / filename
+        
+        try:
+            wb.save(path)
+            messagebox.showinfo("Berhasil", f"File Excel berhasil disimpan ")
+        except Exception as e:
+            messagebox.showerror("Error", f"Gagal menyimpan file Excel:\n{e}")
 
 
     def _period_range_text(self):
@@ -637,7 +687,6 @@ class RiwayatWaterMonitoringPage:
         self.calendar_month = self.temp_date.month if period in ("tanggal", "Mingguan") else self.temp_month
 
     def _draw_picker_popup(self, canvas, sx, sy, fs, rect, text, line, y_unit):
-        # 1. Gambar overlay gelap transparan (tetap dipertahankan)
         top = self.canvas.canvasy(0)
         canvas.create_rectangle(0, top, self.canvas.winfo_width(), top + self.canvas.winfo_height(),
                                 fill="#000000", stipple="gray25", outline="", tags="popup")
@@ -649,22 +698,16 @@ class RiwayatWaterMonitoringPage:
         visible_height = self.canvas.winfo_height() / y_unit
         x0 = (FIGMA_WIDTH - popup_width) / 2
         y0 = y_offset + max(18, (visible_height - popup_height) / 2)
-
-        # 2. Gambar background kartu putih
         rect(x0, y0, popup_width, popup_height, 20, "#ffffff", shadow=True, tags="popup")
         
         title = "Pilih Tanggal" if self.pending_period in ("tanggal", "Mingguan") else "Pilih Waktu"
         text(x0 + 24, y0 + 20, title, 18, "bold", tags="popup")
         text(x0 + popup_width - 70, y0 + 24, "Batal", 12, "bold", "#6f6876", tags=("popup", "popup-close"))
 
-        # 3. Buat Frame Tkinter untuk menampung Widget kalender/dropdown
         self.picker_frame = tk.Frame(canvas, bg="#ffffff")
-        
-        # 4. Injeksi widget berdasarkan periode
         if self.pending_period in ("tanggal", "Mingguan"):
             sel_bg = PRIMARY if self.pending_period == "tanggal" else "#d9d9d9"
             sel_fg = "#ffffff" if self.pending_period == "tanggal" else "#000000"
-            # Menggunakan tkcalendar!
             self.cal = Calendar(self.picker_frame, selectmode='day',
                                 year=self.temp_date.year, 
                                 month=self.temp_date.month, 
@@ -678,64 +721,44 @@ class RiwayatWaterMonitoringPage:
                                 maxdate=self._today(),
                                 font=("Segoe UI", 6)) # <-- TAMBAHKAN PARAMETER FONT INI
             self.cal.pack(expand=True, fill="both", padx=1, pady=1) # Tambahkan sedikit padding
-        # --- LOGIKA KHUSUS MODE MINGGUAN ---
             if self.pending_period == "Mingguan":
-                # Siapkan warna untuk sisa hari dalam seminggu
+
                 self.cal.tag_config("selected_week", background="#d9d9d9", foreground="#000000")
-                # Deteksi setiap kali pengguna mengklik tanggal
                 self.cal.bind("<<CalendarSelected>>", self._highlight_week)
-                # Jalankan sekali saat kalender pertama kali dibuka untuk menyorot minggu saat ini
                 self._highlight_week(None)
                 
         elif self.pending_period == "Bulan":
-            # Label dan Dropdown Bulan
             ttk.Label(self.picker_frame, text="Bulan:", background="#ffffff", font=("Segoe UI", 12, "bold")).pack(pady=(0, 2))
             self.cb_month = ttk.Combobox(self.picker_frame, values=MONTH_NAMES, state="readonly", 
                                         style="Inotek.TCombobox", font=("Segoe UI", 12), width=10)
             self.cb_month.current(self.temp_month - 1)
             self.cb_month.pack(pady=0)
-            
-            # Label dan Dropdown Tahun
+
             ttk.Label(self.picker_frame, text="Tahun:", background="#ffffff", font=("Segoe UI", 12, "bold")).pack(pady=(0, 2))
-            # --- UBAH + 2 MENJADI + 1 DI SINI ---
             self.cb_year = ttk.Combobox(self.picker_frame, values=list(range(2023, self._today().year + 1)), state="readonly", 
                                         style="Inotek.TCombobox", font=("Segoe UI", 12), width=10)
-            # ------------------------------------
             self.cb_year.set(self.temp_year)
             self.cb_year.pack(pady=0)
 
         elif self.pending_period == "Tahunan":
-            # Label dan Dropdown Tahun Saja
             ttk.Label(self.picker_frame, text="Tahun:", background="#ffffff", font=("Segoe UI", 12, "bold")).pack(pady=(0, 2))
-            # --- UBAH + 2 MENJADI + 1 DI SINI JUGA ---
             self.cb_year = ttk.Combobox(self.picker_frame, values=list(range(2023, self._today().year + 1)), state="readonly", 
                                         style="Inotek.TCombobox", font=("Segoe UI", 12), width=10)
-            # -----------------------------------------
             self.cb_year.set(self.temp_year)
             self.cb_year.pack(pady=0)
-
-        # 5. Tampilkan frame ke atas Canvas
         self.canvas.create_window(sx(x0 + 20), sy(y0 + 50), window=self.picker_frame, anchor="nw", width=sx(popup_width - 40), height=sy(popup_height - 105), tags="popup-widget")
 
-        # Tombol Selesai
         rect(x0 + popup_width - 120, y0 + popup_height - 54, 92, 34, 18, PRIMARY, tags=("popup", "picker-done"))
         text(x0 + popup_width - 98, y0 + popup_height - 48, "Selesai", 12, "bold", "#ffffff", tags=("popup", "picker-done"))
 
     def _finish_picker(self):
         period = self.pending_period
-        
-        # 1. Ambil nilai dari widget yang aktif
         if period in ("tanggal", "Mingguan"):
-            # tkcalendar mengembalikan objek datetime.date jika kita panggil secara spesifik, 
-            # atau string. Untuk amannya, kita konversi dari string bawaan:
-            date_str = self.cal.get_date() 
-            # Format default tkcalendar adalah m/d/y atau d/m/y tergantung locale.
-            # Lebih aman panggil internal method datetime-nya:
             selected_date = self.cal.selection_get()
             
             if period == "tanggal":
                 self.selected_date = self._clamp_date(selected_date)
-            else: # Mingguan
+            else:
                 selected = self._clamp_date(selected_date)
                 self.selected_week_start = selected - timedelta(days=selected.weekday())
                 
@@ -746,11 +769,9 @@ class RiwayatWaterMonitoringPage:
         elif period == "Tahunan":
             self.selected_year = int(self.cb_year.get())
 
-        # 2. Hapus frame widget dari memori
         if hasattr(self, 'picker_frame'):
             self.picker_frame.destroy()
 
-        # 3. Selesaikan update state
         self.period = period
         self.selected_day = None
         self.show_picker_popup = False
@@ -776,19 +797,12 @@ class RiwayatWaterMonitoringPage:
         self.draw()
         
     def _highlight_week(self, event):
-        # 1. Bersihkan semua warna abu-abu (tag) dari pilihan sebelumnya
         self.cal.calevent_remove('all')
-        
-        # 2. Dapatkan tanggal yang baru saja diklik
+
         selected_date = self.cal.selection_get()
-        
-        # 3. Hitung hari Senin (awal minggu) dari tanggal yang diklik
         start_of_week = selected_date - timedelta(days=selected_date.weekday())
-        
-        # 4. Warnai 7 hari di minggu tersebut menggunakan tag 'selected_week'
         for i in range(7):
             current_day = start_of_week + timedelta(days=i)
-            # Cegah mewarnai hari di masa depan (yang melebihi maxdate)
             if current_day <= self._today():
                 self.cal.calevent_create(current_day, 'Minggu Pilihan', 'selected_week')
     
@@ -799,12 +813,10 @@ class RiwayatWaterMonitoringPage:
         self._is_dragging_scroll = False
 
     def _click_track(self, event):
-        # Memungkinkan pengguna melompat ke posisi tertentu jika jalurnya diklik
         self._is_dragging_scroll = True
         self._drag_scroll(event)
 
     def _drag_scroll(self, event):
-        # Jangan lakukan apapun jika tidak sedang menahan klik pada scrollbar
         if not getattr(self, '_is_dragging_scroll', False):
             return
             
@@ -815,10 +827,8 @@ class RiwayatWaterMonitoringPage:
         visible_count = 10
         max_scroll = total_count - visible_count
 
-        # Dapatkan posisi kursor di layar
         y = self.canvas.canvasy(event.y)
-        
-        # Kembalikan posisi ke ukuran standar Figma
+
         sy_factor = getattr(self, '_sy_factor', 1.0)
         figma_y = y / sy_factor if sy_factor != 0 else y
         
@@ -826,17 +836,10 @@ class RiwayatWaterMonitoringPage:
         track_y2 = 1240
         track_h = track_y2 - track_y1
         thumb_h = max(40, track_h * (visible_count / total_count))
-        
-        # Hitung rasio (0.0 hingga 1.0) posisi kursor di antara jalur scroll
-        # Dikurangi (thumb_h / 2) agar kursor Anda selalu berada tepat di tengah pil ungunya!
         ratio = (figma_y - track_y1 - (thumb_h / 2)) / (track_h - thumb_h)
-        
-        # Kunci rasio agar tidak bablas keluar batas tabel (0% hingga 100%)
         ratio = max(0.0, min(1.0, ratio))
         
         new_index = int(round(ratio * max_scroll))
-        
-        # Render ulang tabel secara instan mengikuti kursor
         if new_index != self.table_scroll_index:
             self.table_scroll_index = new_index
             self.draw()

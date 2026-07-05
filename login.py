@@ -3,22 +3,20 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox
-# from database import Database
-# 
-from database import Database #generate_today_hourly_dummy_data #, generate_3_months_dummy_data
+from database import Database
 from dashboard import DashboardPage
-from logic import draw_chart_today, draw_gradient_fill, draw_ph_bar, row_value_time, average_ph, bucket_range_label, dot_color, format_last_synced, format_number, four_hour_average, getpHStatus, get_device_health, format_today, mix_color, ph_color, ph_status
+from logic import draw_chart_today, draw_gradient_fill, draw_ph_bar, redraw_when_resized, row_value_time, average_ph, bucket_range_label, dot_color, format_last_synced, format_number, four_hour_average, getpHStatus, get_device_health, format_today, mix_color, ph_color, ph_status
+from notification import NotificationPage
 from riwayatwmonitoring import RiwayatWaterMonitoringPage
 from services import SensorService
-# from watermonitoring import WaterMonitoringPage
+
 
 try:
     from PIL import Image, ImageTk
-except ImportError:  # Jika Pillow belum terpasang, sebagian gambar akan memakai fallback teks/gambar PNG biasa.
+except ImportError:
     Image = None
     ImageTk = None
 
-# Warna utama aplikasi. Nilai ini dipakai berulang supaya tampilan konsisten.
 APP_BG = "#f7f2fb"
 CARD_BG = "#ffffff"
 PRIMARY = "#9157f5"
@@ -28,7 +26,6 @@ MUTED = "#6e6675"
 INPUT_BORDER = "#bf8cff"
 SHADOW = "#d8d0df"
 
-#kalo ukuran di lcd nya sih 800x480, tapi buat nyamaain lcd ukuran dashboard dibuat 520x320 
 DASHBOARD_WIDTH = 520
 DASHBOARD_HEIGHT = 320
 LOGIN_WIDTH = DASHBOARD_WIDTH
@@ -96,15 +93,12 @@ class RoundedEntry(tk.Canvas):
 
 
 class InotekApp:
-    # Class utama aplikasi. Semua perpindahan layar dan event tombol ada di sini.
     def __init__(self, window):
         self.window = window
         self.db = Database(DATABASE_PATH)
         self._db_warning_shown = False
         try:
             self.db.ensure_schema()
-            # generate_3_months_dummy_data(self.db, user_id=1)
-            # generate_today_hourly_dummy_data(self.db, user_id=1)
         except Exception as exc:
             self._warn_database_once(exc)
         self.sensor = SensorService()
@@ -327,10 +321,11 @@ class InotekApp:
 
     def show_water_history(self):
         RiwayatWaterMonitoringPage(self).render()
+    
+    def show_notification(self):
+        NotificationPage(self).render()
 
     def _dashboard_round_rect(self, canvas, x1, y1, x2, y2, radius, fill, outline, width, tags):
-        # Rounded rectangle khusus dashboard.
-        # Tkinter Canvas tidak punya create_round_rectangle, jadi bentuknya dibuat dari polygon.
         points = [
             x1 + radius, y1, x2 - radius, y1, x2, y1, x2, y1 + radius,
             x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
@@ -427,8 +422,75 @@ class InotekApp:
     def draw_chart_today(self, canvas, sx, sy, fs, line, text, accent, fill, values):
         return draw_chart_today(self, canvas, sx, sy, fs, line, text, accent, fill, values)
 
+    def get_canvas_helpers(self, canvas, figma_width=960, figma_height=640):
+        # Isi aslinya langsung ditaruh di sini!
+        width = max(canvas.winfo_width(), self.width)
+        height = max(canvas.winfo_height(), self.height)
+        scale = min(width / self.width, height / self.height)
+        ox = (width - self.width * scale) / 2
+        oy = (height - self.height * scale) / 2
+        x_ratio = self.width / figma_width
+        y_ratio = self.height / figma_height
+
+        def sx(value): return ox + value * x_ratio * scale
+        def sy(value): return oy + value * y_ratio * scale
+        def fs(size): return max(7, int(size * y_ratio * scale))
+
+        def rect(x, y, w, h, r, fill, outline="", width=0, shadow=False, tags=None):
+            if shadow:
+                self._dashboard_round_rect(canvas, sx(x + 4), sy(y + 5), sx(x + w + 4), sy(y + h + 5), r * y_ratio * scale, "#c9c9c9", "#c9c9c9", 0, None)
+            self._dashboard_round_rect(canvas, sx(x), sy(y), sx(x + w), sy(y + h), r * y_ratio * scale, fill, outline or fill, width, tags)
+
+        def text(x, y, value, size, weight="normal", fill="#000000", anchor="nw", tags=None, justify="left"):
+            canvas.create_text(sx(x), sy(y), text=value, fill=fill, anchor=anchor, justify=justify, font=("Segoe UI", fs(size), weight), tags=tags)
+
+        def line(x1, y1, x2, y2, fill="#9157f5", width=1, dash=None):
+            canvas.create_line(sx(x1), sy(y1), sx(x2), sy(y2), fill=fill, width=max(1, int(width * scale)), dash=dash)
+
+        return sx, sy, fs, rect, text, line, scale
+
+
+    def draw_sidebar(self, canvas, sx, sy, scale):
+        # Isi aslinya langsung ditaruh di sini!
+        self._dashboard_round_rect(canvas, sx(0), sy(0), sx(78 + 4), sy(640 + 5), 0, "#c9c9c9", "#c9c9c9", 0, None)
+        canvas.create_rectangle(sx(0), sy(0), sx(78), sy(640), fill="#ffffff", outline="")
+        self._dashboard_round_rect(canvas, sx(8), sy(20), sx(69), sy(72), 0, "#faf7ff", "#faf7ff", 0, None)
+
+        # Ikon sidebar
+        self._draw_icon_image(canvas, sx, sy, scale, "logo inotekai.jpeg", 8, 20, 61, 52, fallback=lambda: canvas.create_text(sx(12), sy(35), text="InotekAI", fill="#9157f5"))
+        self._draw_icon_image(canvas, sx, sy, scale, "home ungu.png", 22, 235, 38, 38, fallback=lambda: self._draw_home_icon(canvas, sx, sy, scale, 24, 243))
+        self._draw_icon_image(canvas, sx, sy, scale, "water hitam.png", 22, 300, 42, 42, fallback=lambda: self._draw_water_icon(canvas, sx, sy, scale, 21, 302, label=True))
+        self._draw_icon_image(canvas, sx, sy, scale, "notif hitam.png", 15, 360, 50, 50, fallback=lambda: self._draw_notif_icon(canvas, sx, sy, scale, 17, 367))
+
+        # Hitbox (Area Klik)
+        canvas.create_rectangle(sx(0), sy(206), sx(78), sy(284), fill="", outline="", tags="home-nav")
+        canvas.create_rectangle(sx(0), sy(284), sx(78), sy(352), fill="", outline="", tags="water-nav")
+        canvas.create_rectangle(sx(0), sy(352), sx(78), sy(430), fill="", outline="", tags="notif-nav")
+
+
+    def draw_universal_card(self, rect, text, line, x, y, width, height, title, value, fill, value_color, subtitle="", show_line=False):
+        # Isi aslinya langsung ditaruh di sini!
+        padding_y = 15
+        rect(x, y, width, height, 18, fill, shadow=True)
+        center_x = x + width / 2
+        
+        if show_line:
+            title_y = y + padding_y
+            line_y = title_y + 37
+            value_y = y + height / 2 + 15
+            text(center_x, title_y + 8, title, 15, "bold", fill="#000000", anchor="center")
+            line(x + 20, line_y - 7, x + width - 20, line_y - 7, "#000000", 1)
+            text(center_x, value_y + 5, value, 27, "bold", value_color, anchor="center")
+        else:
+            text(x + 15, y + 13, title, 15)
+            text(x + 15, y + 35, value, 27, "bold", value_color)
+            if subtitle:
+                text(x + 15, y + 70, subtitle, 10, fill="#666666")
+    
+    def redraw_when_resized(self, event):
+        return redraw_when_resized(self, event)
+    
 if __name__ == "__main__":
-    # Titik awal program. Tk() membuat window, lalu mainloop menjalankan aplikasi.
     root = tk.Tk()
     app = InotekApp(root)
     root.mainloop()
