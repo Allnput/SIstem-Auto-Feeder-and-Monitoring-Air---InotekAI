@@ -1,7 +1,5 @@
 ﻿from datetime import datetime
 from pathlib import Path
-from PIL import ImageTk
-from mlflow import Image
 
 ICON_DIR = Path(__file__).resolve().parent / "icon"
 
@@ -137,7 +135,6 @@ def four_hour_average(rows, metric):
         if value is None or not isinstance(synced_at, datetime):
             continue
             
-        # Cegah kebocoran data: Hanya hitung data milik hari ini
         if synced_at.date() != today_date:
             continue
             
@@ -169,7 +166,6 @@ def row_value_time(row, metric):
         synced_at = row[3]
         
         if isinstance(synced_at, str):
-            # Memperbaiki anomali spasi pada generator data dummy ('2026-04-0106:39:33')
             if len(synced_at) == 18 and synced_at[10] != ' ':
                 synced_at = synced_at[:10] + ' ' + synced_at[10:]
             synced_at = datetime.strptime(synced_at, "%Y-%m-%d %H:%M:%S")
@@ -279,9 +275,7 @@ def draw_gradient_fill(canvas, sx, sy, point_items, bottom, color_for_value):
                 outline="",
                 stipple="gray50",
             )
-            
-            
-#chart
+
 def draw_chart_today(self, canvas, sx, sy, fs, line, text, accent, fill, values):
     left, top, right, bottom = 140, 365, 885, 590
     height=31 
@@ -344,7 +338,6 @@ def draw_chart_today(self, canvas, sx, sy, fs, line, text, accent, fill, values)
         text(tooltip_x + 30, tooltip_y + 8, f"Pukul {time_str}", 8, fill="#ffffff", tags="chart-tooltip")
         text(tooltip_x + 30, tooltip_y + 24, f"{value_label}: {format_number(val)}", 10, "bold", "#ffffff", tags="chart-tooltip")
 
-    # 3. Proses Pengumpulan Titik Koordinat dari Data Aktual
     points = []
     point_items = []
     for index, data in enumerate(values):
@@ -363,27 +356,29 @@ def draw_chart_today(self, canvas, sx, sy, fs, line, text, accent, fill, values)
         
         draw_gradient_fill(canvas, sx, sy, point_items, bottom, ph_color)
 
-            # 5. Gambar Garis Poligon Grafik
     if len(points) == 4:
         canvas.create_line(points, fill=accent, width=max(2, int(2 * height / FIGMA_HEIGHT)), smooth=False)
     elif len(points) > 4:
         canvas.create_line(points, fill=accent, width=max(2, int(2 * height / FIGMA_HEIGHT)), smooth=True)
 
-            # 6. Gambar Dot pada Setiap Pembacaan
     for index, val, x, y in point_items:
         r = 4
         tag = f"chart-point-{index}"
         canvas.create_oval(sx(x) - r, sy(y) - r, sx(x) + r, sy(y) + r, fill=ph_color(val), outline="#ffffff", tags=tag)
         canvas.tag_bind(tag, "<Button-1>", lambda _event, selected=index: show_tooltip(selected))
 
-    # 7. Distribusikan Label Teks Sumbu X Secara Merata (Tetap 4-jaman)
     for index, label in enumerate(times):
         denominator = max(1, len(times) - 1)
-        # Label di bagian bawah tidak bergantung pada data aktual, diposisikan rata sepanjang sumbu X
         label_x = left + (index / denominator) * chart_width
         text(label_x, bottom + 8, label, 7, fill="#a0a0a0", anchor="n")
 
-    # 8. Render kembali tooltip yang sedang aktif (jika window di-resize dll)
     selected_index = self._selected_bucket_index
     if selected_index is not None:
         show_tooltip(selected_index)
+
+def redraw_when_resized(self, event):
+    size = (event.width, event.height)
+    if size == self._last_canvas_size:
+        return
+    self._last_canvas_size = size
+    self.draw(event.widget)

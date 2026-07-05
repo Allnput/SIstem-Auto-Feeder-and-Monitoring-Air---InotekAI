@@ -1,12 +1,11 @@
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, time
+from datetime import datetime
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DATABASE_PATH = BASE_DIR / "amba.db"
-
 
 
 class Database:
@@ -198,7 +197,6 @@ class Database:
         return datetime.now()
 
     def get_water_history_by_date_range(self, start_date, end_date):
-        # Menyuruh SQLite hanya mengambil data di antara start_date dan end_date
         query = """
             SELECT
                 ph_level,
@@ -219,163 +217,41 @@ class Database:
 
         return rows
 
+#NOTIFICATION MANAGEMENT-------------------
+    def get_last_device_status(self, user_id=1):
+        query = """
+            SELECT status FROM device_status 
+            WHERE user_id = ? 
+            ORDER BY last_seen DESC LIMIT 1
+        """
+        with self._connect() as conn:
+            row = conn.execute(query, (user_id,)).fetchone()
+        # Default asumsikan 'active' jika belum ada data sama sekali
+        return row[0] if row else "active"
 
+    def update_device_status(self, user_id, status):
+        query = """
+            INSERT INTO device_status (user_id, status, last_seen) 
+            VALUES (?, ?, ?)
+        """
+        with self._connect() as conn:
+            conn.execute(query, (user_id, status, self._serialize_datetime(datetime.now())))
 
+    def insert_notification(self, user_id, notif_type, title, message):
+        query = """
+            INSERT INTO notifikasi (user_id, notification_type, title, message, timestamp) 
+            VALUES (?, ?, ?, ?, ?)
+        """
+        with self._connect() as conn:
+            conn.execute(query, (user_id, notif_type, title, message, self._serialize_datetime(datetime.now())))
 
-
-
-
-
-
-# #==============================================================================
-import random
-from datetime import datetime, timedelta
-
-def ph_status(ph):
-    try:
-        value = float(ph)
-    except (TypeError, ValueError):
-        return {"label": "Error", "color": "#E74C3C"}
-
-    if value < 0 or value > 14:
-        return {"label": "Di Luar Skala", "color": "#E74C3C"}
-
-    hex_color = ph_color(value)
-
-    if 0 <= value < 4: label = "Sangat Asam"
-    elif 4 <= value < 6: label = "Asam"
-    elif 6 <= value < 7: label = "Hampir Netral"
-    elif 7 <= value <= 8: label = "Netral"
-    elif 8 < value <= 9: label = "Basa Ringan"
-    elif 9 < value < 13: label = "Basa Sedang"
-    else: label = "Sangat Basa"
-
-    return {"label": label, "color": hex_color}
-
-def ph_color(ph):
-    try:
-        value = float(ph)
-    except (TypeError, ValueError):
-        return "#E74C3C"
-
-    if value < 0 or value > 14: return "#E74C3C"
-    
-    if value < 1: return "#E74C3C"
-    if value < 2: return "#D71920"
-    if value < 3: return "#F05A24"
-    if value < 4: return "#F7941D"
-    if value < 5: return "#FFD21F"
-    if value < 6: return "#FFF200"
-    if value < 7: return "#D7DF23"
-    if value <= 8: return "#37B34A"
-    if value <= 9: return "#55C7DF"
-    if value <= 10: return "#2F80C8"
-    if value <= 11: return "#2464AD"
-    if value <= 12: return "#6F63BF"
-    if value < 13: return "#6B3FA0"
-    if value <= 14: return "#3F1D78"
-    
-    return "#E74C3C"
-
-# ==========================================
-# 2. GENERATOR DATA DUMMY (SPEKTRUM PENUH)
-# ==========================================
-# def generate_3_months_dummy_data(db: Database, user_id: int):
-#     print("Membersihkan data lama agar tidak menumpuk...")
-#     with db._connect() as conn:
-#         conn.execute("DELETE FROM monitoring_air")
-        
-#     now = datetime.now()
-#     start_date = now - timedelta(days=90)
-#     current_date = start_date
-#     dummy_records = []
-    
-#     print("Mempersiapkan data dummy spektrum penuh (0-14)...")
-    
-#     while current_date <= now:
-#         # 4 kali pembacaan dalam sehari (Total ~360 baris dalam 90 hari)
-#         for _ in range(4):
-#             reading_time = current_date.replace(
-#                 hour=random.randint(0, 23),
-#                 minute=random.randint(0, 59),
-#                 second=random.randint(0, 59)
-#             )
-            
-#             # CRITICAL FIX: Rentang nilai kini mencakup seluruh skala pH (0.0 hingga 14.0)
-#             ph_level = round(random.uniform(0.0, 14.0), 2)
-            
-#             # Panggil fungsi asli aplikasi agar datanya 100% konsisten
-#             status = ph_status(ph_level)
-            
-#             timestamp_str = db._serialize_datetime(reading_time)
-            
-#             dummy_records.append((
-#                 user_id, 
-#                 ph_level, 
-#                 status["label"], 
-#                 status["color"], 
-#                 timestamp_str
-#             ))
-            
-#         current_date += timedelta(days=1)
-
-#     query = """
-#         INSERT INTO monitoring_air (
-#             user_id, ph_level, ph_status_label, ph_status_color, timestamp
-#         )
-#         VALUES (?, ?, ?, ?, ?)
-#     """
-    
-#     try:
-#         with db._connect() as conn:
-#             conn.executemany(query, dummy_records)
-#         print(f"✅ Berhasil menyisipkan {len(dummy_records)} baris data dummy dengan warna lengkap!")
-#     except Exception as e:
-#         print(f"❌ Terjadi kesalahan saat memasukkan data: {e}")
-
-def generate_today_hourly_dummy_data(db: Database, user_id: int):
-    # Mengambil tanggal hari ini (waktu sistem lokal)
-    today = datetime.now().date()
-    dummy_records = []
-    
-    # print(f"Mempersiapkan data dummy per jam untuk hari ini ({today})...")
-    
-    # Nilai awal pH (dimulai dari Netral untuk simulasi yang realistis)
-    current_ph = 7.0
-    
-    # Looping dari jam 00:00 hingga 23:00 (24 jam)
-    for hour in range(24):
-        # Set waktu tepat pada pergantian jam (menit 0, detik 0)
-        reading_time = datetime.combine(today, time(hour=hour, minute=0, second=0))
-        
-        # Simulasi fluktuasi air (Random Walk): pH naik atau turun maksimal 1.5 poin
-        pergerakan = random.uniform(-1.5, 1.5)
-        current_ph += pergerakan
-        
-        # Clamping: Pastikan nilai tidak bocor hingga kurang dari 0 atau lebih dari 14
-        current_ph = round(max(0.0, min(14.0, current_ph)), 2)
-        
-        # Dapatkan label dan warna menggunakan fungsi validasi
-        status = ph_status(current_ph)
-        timestamp_str = db._serialize_datetime(reading_time)
-        
-        dummy_records.append((
-            user_id, 
-            current_ph, 
-            status["label"], 
-            status["color"], 
-            timestamp_str
-        ))
-
-    query = """
-        INSERT INTO monitoring_air (
-            user_id, ph_level, ph_status_label, ph_status_color, timestamp
-        )
-        VALUES (?, ?, ?, ?, ?)
-    """
-    
-    try:
-        with db._connect() as conn:
-            conn.executemany(query, dummy_records)
-    except Exception as e:
-        print(f"❌ Terjadi kesalahan saat memasukkan data: {e}")
+    def get_notifications(self, user_id=1, limit=5):
+        query = """
+            SELECT notification_type, title, message, timestamp 
+            FROM notifikasi 
+            WHERE user_id = ? 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            return conn.execute(query, (user_id, limit)).fetchall()
