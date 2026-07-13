@@ -32,6 +32,23 @@ class DashboardPage:
         canvas.update_idletasks()
         self.draw(canvas)
         canvas.bind("<Configure>", self.app.redraw_when_resized)
+        self._start_auto_refresh(canvas)
+
+    def _start_auto_refresh(self, canvas, interval_ms=2000):
+        """
+        Gambar ulang dashboard tiap `interval_ms` supaya data pH dari
+        Arduino (lihat serial_reader.py) selalu ter-update di layar,
+        bukan cuma sekali saat halaman pertama kali dibuka.
+        Loop otomatis berhenti kalau halaman ini sudah ditinggalkan
+        (mis. pindah ke halaman lain), jadi tidak menumpuk di background.
+        """
+        def tick():
+            if not canvas.winfo_exists():
+                return
+            self.draw(canvas)
+            canvas.after(interval_ms, tick)
+
+        canvas.after(interval_ms, tick)
 
     def draw(self, canvas):
         self._last_canvas_size = (canvas.winfo_width(), canvas.winfo_height())

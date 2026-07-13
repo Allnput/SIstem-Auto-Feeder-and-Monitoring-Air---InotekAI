@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from serial_reader import get_ph_value
 
 try:
     import RPi.GPIO as GPIO
@@ -23,7 +24,7 @@ class SensorService:
     def read_water_quality(self):
         try:
             
-            ph_value = 7.5 #INI DATA INPUTNYA
+            ph_value = get_ph_value() #DATA ASLI DARI ARDUINO (lihat serial_reader.py)
 
             return SensorReading(
                 ph=ph_value,
